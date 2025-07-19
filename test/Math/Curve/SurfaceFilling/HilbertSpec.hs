@@ -10,10 +10,10 @@ import Test.Tasty
 import Test.Tasty.Inspection
 
 trailUP :: [Quadrant]
-trailUP = trail OrientedCurve {sign = P, direction = U}
+trailUP = curveTrail OrientedCurve {sign = P, side = U}
 
 trailUPExpect :: [Quadrant]
-trailUPExpect = [UpperLeft, DownLeft, DownRight, UpperRight]
+trailUPExpect = [UL, DL, DR, UR]
 
 test_trail :: TestTree
 test_trail =

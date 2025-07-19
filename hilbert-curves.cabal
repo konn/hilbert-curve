@@ -41,25 +41,35 @@ library
   import: defaults
   build-depends:
     adjunctions,
+    comonad,
     diagrams,
+    diagrams-contrib,
+    diagrams-core,
+    diagrams-lib,
     diagrams-rasterific,
+    directory,
     distributive,
+    filepath,
     fmlist,
     free,
     generic-data,
     generic-lens,
     lens,
     linear,
+    optparse-applicative,
     template-haskell,
     transformers,
 
   hs-source-dirs: src
   -- cabal-gild: discover src --exclude=src/**/Internal.hs
-  exposed-modules: Math.Curve.SurfaceFilling.Hilbert
+  exposed-modules:
+    Math.Curve.SurfaceFilling.App
+    Math.Curve.SurfaceFilling.Hilbert
+
   -- cabal-gild: discover src --include=src/**/Internal.hs
   other-modules:
 
-executable hilbert-curves-exe
+executable hilbert-curves
   import: defaults
   main-is: Main.hs
   -- cabal-gild: discover app --exclude=app/Main.hs
