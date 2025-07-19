@@ -204,7 +204,10 @@ instance Invert Sign where
   invert N = P
   invert P = N
 
-data OrientedCurve = OrientedCurve {side :: OpenSide, sign :: Sign}
+data OrientedCurve = OrientedCurve
+  { side :: {-# UNPACK #-} !OpenSide
+  , sign :: {-# UNPACK #-} !Sign
+  }
   deriving (Show, Eq, Ord, Generic)
 
 instance Invert OrientedCurve where
