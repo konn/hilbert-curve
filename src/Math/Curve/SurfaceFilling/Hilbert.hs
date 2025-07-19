@@ -15,14 +15,14 @@ module Math.Curve.SurfaceFilling.Hilbert (
   hilbert0,
   hilbertStep,
   OrientedCurve (..),
+  start,
+  end,
   Direction (..),
   Sign (..),
   Quad (..),
   Quadrant (..),
   Rotate (..),
   Invert (..),
-  start,
-  end,
 ) where
 
 import Control.Comonad.Cofree
@@ -40,9 +40,9 @@ hilbert0 = OrientedCurve {direction = U, sign = P}
 hilbertStep :: (Rotate a, Invert a) => a -> Quad a
 hilbertStep curve = tabulate \case
   UpperLeft -> invert $ counterClockwise curve
-  DownLeft -> invert $ clockwise curve
+  UpperRight -> invert $ clockwise curve
+  DownLeft -> curve
   DownRight -> curve
-  UpperRight -> curve
 
 hilbertCurve :: Cofree Quad OrientedCurve
 hilbertCurve = coiter hilbertStep hilbert0
@@ -132,9 +132,9 @@ data Quad a = Quad
   deriving (Show1) via Generically1 Quad
 
 instance (Rotate a) => Rotate (Quad a) where
-  clockwise c = tabulate $ clockwise . index c . counterClockwise
+  clockwise = fmap clockwise . localRep clockwise
   {-# INLINE clockwise #-}
-  counterClockwise c = tabulate $ counterClockwise . index c . clockwise
+  counterClockwise = fmap counterClockwise . localRep counterClockwise
   {-# INLINE counterClockwise #-}
 
 instance (Invert a) => Invert (Quad a) where

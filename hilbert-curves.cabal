@@ -44,6 +44,7 @@ library
     diagrams,
     diagrams-rasterific,
     distributive,
+    fmlist,
     free,
     generic-data,
     generic-lens,
@@ -84,7 +85,9 @@ test-suite hilbert-curves-test
   other-modules:
   build-depends:
     hilbert-curves,
+    inspection-testing,
     tasty,
+    tasty-inspection-testing,
 
   build-tool-depends: tasty-discover:tasty-discover
 
