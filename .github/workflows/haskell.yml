@@ -11,11 +11,11 @@ jobs:
     name: Enumerate GHC Versions
     runs-on: ubuntu-latest
     outputs:
-      plan: $
+      plan: ${{steps.list-ci.outputs.plan}}
     steps:
     - uses: actions/checkout@v3
       with:
-        ref: $
+        ref: ${{github.event.pull_request.head.sha || github.sha}}
     - name: Enumerate CI plans
       id: list-ci
       uses: actions/github-script@v6
@@ -25,146 +25,146 @@ jobs:
           await script({github, context, core, glob, io, require})
 
   build:
-    name: Build ($)
+    name: Build (${{matrix.plan.name}})
     needs: [ci-enumerate]
     continue-on-error: true
     strategy:
       matrix:
-        plan: $
+        plan: ${{fromJSON(needs.ci-enumerate.outputs.plan)}}
       fail-fast: false
     env:
       cabal-version: 3.14.2.0
-      cabal: "cabal --project-file=$"
-      ghc: $
-      project-file: $
-      plan: $
-      artifact-name: "artifact-$"
+      cabal: "cabal --project-file=${{matrix.plan.path}}"
+      ghc: ${{matrix.plan.ghc}}
+      project-file: ${{matrix.plan.path}}
+      plan: ${{matrix.plan.name}}
+      artifact-name: "artifact-${{matrix.plan.name}}"
     runs-on: ubuntu-latest
     outputs:
-      benchmarks: $
-      tests: $
-      artifact: "artifact-$"
+      benchmarks: ${{steps.list-bins.outputs.benchs}}
+      tests: ${{steps.list-bins.outputs.tests}}
+      artifact: "artifact-${{matrix.plan.name}}"
     steps:
     - uses: actions/checkout@v3
       with:
-        ref: $
+        ref: ${{github.event.pull_request.head.sha || github.sha}}
     - name: Calculate hash keys
       uses: actions/github-script@v6
       id: cache-keys
       with:
         script: |
           const script = require('./ci/scripts/calc-cache-keys.js')
-          await script({ os: "ubuntu", plan: $, path: $, core, glob })
+          await script({ os: "ubuntu", plan: ${{toJSON(env.plan)}}, path: ${{toJSON(env.project-file)}}, core, glob })
 
     - name: Setup Haskell
       uses: haskell-actions/setup@v2
       with:
         enable-stack: false
-        cabal-version: $
-        ghc-version: $
+        cabal-version: ${{env.cabal-version}}
+        ghc-version: ${{env.ghc}}
     - name: Restore ~/.cabal/store
       uses: actions/cache/restore@v4
       with:
         path: ~/.cabal/store
-        key: $
-        restore-keys: $
+        key: ${{steps.cache-keys.outputs.store}}
+        restore-keys: ${{steps.cache-keys.outputs.store-restore}}
     - name: Restore dist-newstyle
       uses: actions/cache/restore@v4
       with:
         path: dist-newstyle
-        key: $
-        restore-keys: $
+        key: ${{steps.cache-keys.outputs.dist}}
+        restore-keys: ${{steps.cache-keys.outputs.dist-restore}}
     - name: cabal configure
       run: |
-        $ v2-configure --enable-tests --enable-benchmarks --enable-optimisation=2
-        $ update
+        ${{env.cabal}} v2-configure --enable-tests --enable-benchmarks --enable-optimisation=2
+        ${{env.cabal}} update
     - name: Build Dependencies
       run: | 
-        $ build --only-dependencies all
+        ${{env.cabal}} build --only-dependencies all
     - name: Save ~/.cabal/store Cache
       uses: actions/cache/save@v4
       with:
         path: ~/.cabal/store
-        key: $
+        key: ${{steps.cache-keys.outputs.store}}
     - name: Build All
       run: | 
-        $ build all
+        ${{env.cabal}} build all
     - name: Save dist-newstyle Cache
       uses: actions/cache/save@v4
       with:
         path: dist-newstyle
-        key: $
+        key: ${{steps.cache-keys.outputs.dist}}
 
     - name: Collect binaries
       continue-on-error: true
-      run: bash ./ci/scripts/collect-bins.sh "$"
+      run: bash ./ci/scripts/collect-bins.sh "${{env.artifact-name}}"
     - name: Upload Aritracts
       uses: actions/upload-artifact@v4
       with:
-        path: $.tar.zst
-        name: $
+        path: ${{env.artifact-name}}.tar.zst
+        name: ${{env.artifact-name}}
         retention-days: 1
     - name: Upload dist directory (for doctest)
       uses: actions/upload-artifact@v4
       with:
         path: dist-newstyle
-        name: dist-newstyle-$
+        name: dist-newstyle-${{matrix.plan.name}}
     - name: Upload ~/.cabal/store directory (for doctest)
       uses: actions/upload-artifact@v4
       with:
         path: ~/.cabal/store
-        name: store-$
+        name: store-${{matrix.plan.name}}
     - name: List Binaries
       id: list-bins
       shell: bash
       run: |
-        echo "benchs=$(jq -cMnR '[inputs]' <"$"/benchs.list)" >>"${GITHUB_OUTPUT}"
-        echo "tests=$(jq -cMnR '[inputs]' <"$"/tests.list)" >>"${GITHUB_OUTPUT}"
+        echo "benchs=$(jq -cMnR '[inputs]' <"${{env.artifact-name}}"/benchs.list)" >>"${GITHUB_OUTPUT}"
+        echo "tests=$(jq -cMnR '[inputs]' <"${{env.artifact-name}}"/tests.list)" >>"${GITHUB_OUTPUT}"
 
   test:
-    name: Test ($)
+    name: Test (${{matrix.plan.name}})
     needs: [ci-enumerate, build]
-    continue-on-error: $
+    continue-on-error: ${{matrix.plan.is_head}}
     strategy:
       matrix:
-        plan: $
+        plan: ${{fromJSON(needs.ci-enumerate.outputs.plan)}}
       fail-fast: false
     env:
       cabal: 3.14.2.0
-      ghc: $
-      project-file: $
-      plan: $
-      artifact: artifact-$
-      dist-name: dist-newstyle-$
-      store: store-$
+      ghc: ${{matrix.plan.ghc}}
+      project-file: ${{matrix.plan.path}}
+      plan: ${{matrix.plan.name}}
+      artifact: artifact-${{matrix.plan.name}}
+      dist-name: dist-newstyle-${{matrix.plan.name}}
+      store: store-${{matrix.plan.name}}
     runs-on: ubuntu-latest
     steps:
       - name: Fail when Corresponding Build didn't succeed
-        if: $
+        if: ${{needs.build.result != 'success' }}
         run: echo "BUILD FAILED" >&2; exit 1
       - uses: actions/checkout@v3
         with:
-          ref: $
+          ref: ${{github.event.pull_request.head.sha || github.sha}}
       - name: Download artifacts
         id: download
         uses: actions/download-artifact@v4
         with:
-          name: $
+          name: ${{env.artifact}}
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: $
+          name: ${{env.dist-name}}
           path: dist-newstyle
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: $
+          name: ${{env.store}}
           path: ~/.cabal/store
       - name: Decompress and locate artifacts
         run: |
-          ls -R "$"
-          tar xaf "$/$.tar.zst"
-          cp "$"/.ghc.environment.* .
+          ls -R "${{ steps.download.outputs.download-path }}"
+          tar xaf "${{ steps.download.outputs.download-path }}/${{env.artifact}}.tar.zst"
+          cp "${{env.artifact}}"/.ghc.environment.* .
           ls -R
       - name: Run Tests
         shell: bash
@@ -178,7 +178,7 @@ jobs:
             echo "--------"
             echo "Running: ${TEST}"
             set +e
-            $/tests/"${TEST}"
+            ${{env.artifact}}/tests/"${TEST}"
             RESL=$?
             set -e
             if [ ${RESL} -eq 0 ]; then
@@ -188,7 +188,7 @@ jobs:
               FAIL=$((FAIL + 1))
               echo 'Result: FAILED!'
             fi
-          done <$/tests.list
+          done <${{env.artifact}}/tests.list
 
           echo ""
           echo "----"
@@ -223,4 +223,5 @@ jobs:
       with:
         cabal-version: 3.14.2.0
         ghc-version: latest
-    - run: cabal check
+    - run: |
+        find . -name '*.cabal' | while read CABAL; do pushd "$(dirname ${CABAL})"; cabal check; popd ; done 
