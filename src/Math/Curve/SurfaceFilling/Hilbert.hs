@@ -112,9 +112,15 @@ trail = \curve ->
     U -> case curve.sign of
       P -> [UpperLeft, DownLeft, DownRight, UpperRight]
       N -> [UpperRight, DownRight, DownLeft, UpperLeft]
-    L -> map counterClockwise $ trail $ clockwise curve
-    D -> fmap (counterClockwise . counterClockwise) $ trail $ clockwise $ clockwise curve
-    R -> fmap counterClockwise $ trail $ clockwise curve
+    L -> case curve.sign of
+      P -> [DownLeft, DownRight, UpperRight, UpperLeft]
+      N -> [UpperLeft, UpperRight, DownRight, DownLeft]
+    D -> case curve.sign of
+      P -> [DownRight, UpperRight, UpperLeft, DownLeft]
+      N -> [DownLeft, UpperLeft, UpperRight, DownRight]
+    R -> case curve.sign of
+      P -> [UpperRight, UpperLeft, DownLeft, DownRight]
+      N -> [DownRight, DownLeft, UpperLeft, UpperRight]
 
 start :: OrientedCurve -> Quadrant
 start OrientedCurve {..} =
