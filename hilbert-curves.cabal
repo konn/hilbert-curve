@@ -50,6 +50,8 @@ library
     generic-lens,
     lens,
     linear,
+    template-haskell,
+    transformers,
 
   hs-source-dirs: src
   -- cabal-gild: discover src --exclude=src/**/Internal.hs
@@ -82,12 +84,14 @@ test-suite hilbert-curves-test
     -with-rtsopts=-N
 
   -- cabal-gild: discover test --exclude=test/Main.hs
-  other-modules:
+  other-modules: Math.Curve.SurfaceFilling.HilbertSpec
   build-depends:
+    fmlist,
     hilbert-curves,
     inspection-testing,
     tasty,
     tasty-inspection-testing,
+    template-haskell,
 
   build-tool-depends: tasty-discover:tasty-discover
 

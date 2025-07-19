@@ -15,6 +15,7 @@ module Math.Curve.SurfaceFilling.Hilbert (
   hilbert0,
   hilbertStep,
   OrientedCurve (..),
+  trail,
   start,
   end,
   Direction (..),
@@ -33,6 +34,7 @@ import Data.Functor.Rep
 import Data.Generics.Labels ()
 import GHC.Generics (Generic, Generic1, Generically1 (..))
 import Generic.Data ()
+import Language.Haskell.TH.Syntax (Lift)
 
 hilbert0 :: OrientedCurve
 hilbert0 = OrientedCurve {direction = U, sign = P}
@@ -49,7 +51,7 @@ hilbertCurve = coiter hilbertStep hilbert0
 
 -- | Which side of square is open?
 data Direction = U | D | L | R
-  deriving (Show, Eq, Ord, Generic)
+  deriving (Show, Eq, Ord, Generic, Lift)
 
 class Rotate a where
   clockwise :: a -> a
@@ -70,7 +72,7 @@ instance Rotate Direction where
 The curve has sign 'P' if it starts from upper-left corner when aligned to 'U' direction.
 -}
 data Sign = N | P
-  deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic, Lift)
 
 class Invert a where
   invert :: a -> a
@@ -93,15 +95,26 @@ data Quadrant = UpperLeft | DownLeft | DownRight | UpperRight
   deriving (Show, Eq, Ord, Generic)
 
 instance Rotate Quadrant where
-  clockwise UpperLeft = DownLeft
-  clockwise DownLeft = DownRight
-  clockwise DownRight = UpperRight
-  clockwise UpperRight = UpperLeft
+  counterClockwise UpperLeft = DownLeft
+  counterClockwise DownLeft = DownRight
+  counterClockwise DownRight = UpperRight
+  counterClockwise UpperRight = UpperLeft
 
-  counterClockwise UpperLeft = UpperRight
-  counterClockwise UpperRight = DownRight
-  counterClockwise DownRight = DownLeft
-  counterClockwise DownLeft = UpperLeft
+  clockwise UpperLeft = UpperRight
+  clockwise UpperRight = DownRight
+  clockwise DownRight = DownLeft
+  clockwise DownLeft = UpperLeft
+
+trail :: OrientedCurve -> [Quadrant]
+{-# INLINE trail #-}
+trail = \curve ->
+  case curve.direction of
+    U -> case curve.sign of
+      P -> [UpperLeft, DownLeft, DownRight, UpperRight]
+      N -> [UpperRight, DownRight, DownLeft, UpperLeft]
+    L -> map counterClockwise $ trail $ clockwise curve
+    D -> fmap (counterClockwise . counterClockwise) $ trail $ clockwise $ clockwise curve
+    R -> fmap counterClockwise $ trail $ clockwise curve
 
 start :: OrientedCurve -> Quadrant
 start OrientedCurve {..} =
@@ -132,9 +145,9 @@ data Quad a = Quad
   deriving (Show1) via Generically1 Quad
 
 instance (Rotate a) => Rotate (Quad a) where
-  clockwise = fmap clockwise . localRep clockwise
+  clockwise = fmap clockwise . localRep counterClockwise
   {-# INLINE clockwise #-}
-  counterClockwise = fmap counterClockwise . localRep counterClockwise
+  counterClockwise = fmap counterClockwise . localRep clockwise
   {-# INLINE counterClockwise #-}
 
 instance (Invert a) => Invert (Quad a) where
