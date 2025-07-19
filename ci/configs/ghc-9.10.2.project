@@ -6,6 +6,7 @@
 -- To only use tested packages, uncomment the following line:
 -- remote-repo: stackage-lts-24.0:http://www.stackage.org/lts-24.0
 with-compiler: ghc-9.10.2
+import: ../../cabal.project
 constraints: abstract-deque ==0.3,
              abstract-deque-tests ==0.3,
              abstract-par ==0.3.3,

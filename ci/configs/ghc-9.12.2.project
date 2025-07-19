@@ -6,6 +6,7 @@
 -- To only use tested packages, uncomment the following line:
 -- remote-repo: stackage-nightly-2025-07-19:http://www.stackage.org/nightly-2025-07-19
 with-compiler: ghc-9.12.2
+import: ../../cabal.project
 constraints: abstract-deque ==0.3,
              abstract-deque-tests ==0.3,
              abstract-par ==0.3.3,
