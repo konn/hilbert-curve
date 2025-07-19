@@ -1,5 +1,6 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE DuplicateRecordFields #-}
@@ -29,17 +30,19 @@ module Math.Curve.SurfaceFilling.Hilbert (
   Invert (..),
 ) where
 
-import Control.Comonad (Comonad (extract))
 import Control.Comonad.Cofree
 import Control.Lens hiding (at, index, (:<))
+import Control.Monad (join)
 import Data.Distributive (Distributive (..))
-import Data.Foldable qualified as F
+import Data.Foldable (Foldable (..))
+import Data.Functor.Adjunction (unzipR)
 import Data.Functor.Classes (Show1)
 import Data.Functor.Rep
 import Data.Generics.Labels ()
 import Diagrams (Point)
 import Diagrams hiding (Point (P))
-import Diagrams.Prelude (black, white)
+import Diagrams qualified as Dia
+import Diagrams.Prelude (Additive, black, white)
 import GHC.Generics (Generic, Generic1, Generically1 (..))
 import Generic.Data ()
 import Language.Haskell.TH.Syntax (Lift)
@@ -70,7 +73,33 @@ drawHilbertCurve ::
   Word ->
   Diagram b
 drawHilbertCurve n =
-  hilbertCurvePath n & center & pad 1.25 & bg white
+  hilbertCurvePath n & center & pad 1.125 & bg white
+
+data Endpoints a = EndpointCoords
+  { start :: !a
+  , end :: !a
+  }
+  deriving (Show, Eq, Ord, Functor, Foldable, Traversable, Generic, Generic1)
+  deriving (Applicative, Monad) via Co Endpoints
+  deriving anyclass (Representable, Additive)
+
+instance Distributive Endpoints where
+  distribute = distributeRep
+  {-# INLINE distribute #-}
+
+type instance V (Endpoints a) = V a
+
+type instance N (Endpoints a) = N a
+
+instance (Transformable a) => Transformable (Endpoints a) where
+  transform t eps = fmap (Dia.transform t) eps
+
+instance (HasOrigin a) => HasOrigin (Endpoints a) where
+  moveOriginTo newOrig eps =
+    EndpointCoords
+      { start = moveOriginTo newOrig eps.start
+      , end = moveOriginTo newOrig eps.end
+      }
 
 hilbertCurvePath ::
   forall b.
@@ -79,21 +108,46 @@ hilbertCurvePath ::
   , Renderable (Path V2 Double) b
   ) =>
   Word -> Diagram b
-hilbertCurvePath = flip loop hilbertCurve
+hilbertCurvePath !n = fst $ loop 0 hilbertCurve
   where
-    loop :: Word -> Cofree Quad OrientedCurve -> Diagram b
-    loop 0 (curve :< _) = strokeCurve curve
-    loop n (_curve :< curves) =
-      mconcat
-        [ ifoldMap
-            ( \qua cs ->
-                loop (n - 1) cs
-                  & scale 0.5
-                  & moveToQuadrance qua
-            )
-            curves
-            & center
-        ]
+    loop :: Word -> Cofree Quad OrientedCurve -> (Diagram b, Endpoints (Point V2 Double))
+    loop !i (curve :< curves)
+      | i == n =
+          let dia = strokeCurve curve
+              eps =
+                EndpointCoords
+                  (toRelativePoint $ start curve)
+                  (toRelativePoint $ end curve)
+           in (dia, eps)
+      | otherwise =
+          let ts = curveTrail curve
+              (dia, epss) =
+                unzipR $
+                  imap
+                    ( \qua m ->
+                        loop (i + 1) m
+                          & scale 0.5
+                          & moveToQuadrance qua
+                    )
+                    curves
+              ts' = map (index epss) ts
+
+              diagram =
+                mconcat
+                  [ fold dia
+                  , foldMap
+                      ( \(src, tgt) ->
+                          src ~~ tgt & lc black
+                      )
+                      (zip ((.end) <$> ts') $ drop 1 $ (.start) <$> ts')
+                  ]
+              eps' =
+                join
+                  EndpointCoords
+                    { start = index epss (start curve)
+                    , end = index epss (end curve)
+                    }
+           in (diagram, eps')
 
 moveToQuadrance :: (InSpace V2 Double t, HasOrigin t) => Quadrant -> t -> t
 moveToQuadrance = moveTo . toRelativePoint
@@ -217,7 +271,11 @@ data Quad a = Quad
   , upperRight :: a
   }
   deriving (Show, Eq, Ord, Functor, Foldable, Traversable, Generic, Generic1)
-  deriving (Show1) via Generically1 Quad
+  deriving (Applicative, Show1) via Generically1 Quad
+
+instance Monad Quad where
+  (>>=) = bindRep
+  {-# INLINE (>>=) #-}
 
 instance (Rotate a) => Rotate (Quad a) where
   clockwise = fmap clockwise . localRep counterClockwise
