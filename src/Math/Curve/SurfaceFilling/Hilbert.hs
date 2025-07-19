@@ -1,5 +1,6 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
@@ -7,9 +8,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
 module Math.Curve.SurfaceFilling.Hilbert (
@@ -18,11 +21,11 @@ module Math.Curve.SurfaceFilling.Hilbert (
   hilbertCurvePath,
   hilbert0,
   hilbertStep,
-  OrientedCurve (..),
+  OrientedCurve (OrientedCurve, sign, side, PosCurve, NegCurve),
   curveTrail,
   start,
   end,
-  OpenSide (..),
+  OpenSide (U, L, D, R),
   Sign (..),
   Quad (..),
   Quadrant (..),
@@ -32,7 +35,10 @@ module Math.Curve.SurfaceFilling.Hilbert (
 
 import Control.Comonad.Cofree
 import Control.Lens hiding (at, index, (:<))
+import Control.Lens.Internal.CTypes (Word8)
 import Control.Monad (join)
+import Data.Bits (Bits (..))
+import Data.Coerce (coerce)
 import Data.Distributive (Distributive (..))
 import Data.Foldable (Foldable (..))
 import Data.Functor.Adjunction (unzipR)
@@ -44,6 +50,7 @@ import Diagrams hiding (Point (P))
 import Diagrams qualified as Dia
 import Diagrams.Prelude (Additive, black, white)
 import GHC.Generics (Generic, Generic1, Generically1 (..))
+import GHC.Records (HasField (..))
 import Generic.Data ()
 import Language.Haskell.TH.Syntax (Lift)
 
@@ -52,15 +59,16 @@ hilbert0 = OrientedCurve {side = U, sign = P}
 
 hilbertStep :: OrientedCurve -> Quad OrientedCurve
 hilbertStep curve = case curve of
-  OrientedCurve U P -> tabulate \case
-    UL -> invert $ counterClockwise curve
-    UR -> invert $ clockwise curve
-    DL -> curve
-    DR -> curve
-  OrientedCurve L P -> counterClockwise $ hilbertStep $ OrientedCurve U P
-  OrientedCurve R P -> clockwise $ hilbertStep $ OrientedCurve U P
-  OrientedCurve D P -> clockwise $ clockwise $ hilbertStep $ OrientedCurve U P
-  OrientedCurve _ N -> invert $ hilbertStep $ invert curve
+  NegCurve -> invert $ hilbertStep $ invert curve
+  PosCurve -> case curve.side of
+    U -> tabulate \case
+      UL -> invert $ counterClockwise curve
+      UR -> invert $ clockwise curve
+      DL -> curve
+      DR -> curve
+    L -> counterClockwise $ hilbertStep $ OrientedCurve U P
+    R -> clockwise $ hilbertStep $ OrientedCurve U P
+    D -> clockwise $ clockwise $ hilbertStep $ OrientedCurve U P
 
 hilbertCurve :: Cofree Quad OrientedCurve
 hilbertCurve = coiter hilbertStep hilbert0
@@ -173,23 +181,48 @@ toRelativePoint DR = mkP2 0.25 (-0.25)
 toRelativePoint UR = mkP2 0.25 0.25
 
 -- | Which side of square is open?
-data OpenSide = U | D | L | R
-  deriving (Show, Eq, Ord, Generic, Lift)
+newtype OpenSide = OpenSide Word8
+  deriving (Eq, Ord, Generic, Lift)
+
+instance Show OpenSide where
+  show = \case
+    U -> "U"
+    L -> "L"
+    D -> "D"
+    R -> "R"
+
+instance Bounded OpenSide where
+  minBound = U
+  maxBound = R
+
+instance Enum OpenSide where
+  fromEnum (OpenSide w) = fromIntegral w
+  toEnum = OpenSide . fromIntegral
+
+pattern U :: OpenSide
+pattern U = OpenSide 0b00
+
+pattern L :: OpenSide
+pattern L = OpenSide 0b01
+
+pattern D :: OpenSide
+pattern D = OpenSide 0b10
+
+pattern R :: OpenSide
+pattern R = OpenSide 0b11
+
+{-# COMPLETE U, L, D, R #-}
+
+instance Rotate OpenSide where
+  counterClockwise (OpenSide w) =
+    OpenSide $ (w + 0b01) .&. 0b11
+
+  clockwise (OpenSide w) =
+    OpenSide $ (w + 0b11) .&. 0b11
 
 class Rotate a where
   clockwise :: a -> a
   counterClockwise :: a -> a
-
-instance Rotate OpenSide where
-  clockwise U = R
-  clockwise R = D
-  clockwise D = L
-  clockwise L = U
-
-  counterClockwise U = L
-  counterClockwise L = D
-  counterClockwise D = R
-  counterClockwise R = U
 
 {- | The _sign_ of the U curve;
 The curve has sign 'P' if it starts from upper-left corner when aligned to 'U' direction.
@@ -204,18 +237,57 @@ instance Invert Sign where
   invert N = P
   invert P = N
 
-data OrientedCurve = OrientedCurve
-  { side :: {-# UNPACK #-} !OpenSide
-  , sign :: {-# UNPACK #-} !Sign
-  }
+newtype OrientedCurve = OrientedCurve' Word8
+  deriving (Eq, Ord, Generic)
+
+instance Show OrientedCurve where
+  show (OrientedCurve' w) =
+    "OrientedCurve {side = "
+      <> show (side' $ OrientedCurve' w)
+      <> ", sign = "
+      <> show (sign' $ OrientedCurve' w)
+      <> "}"
+
+pattern OrientedCurve :: OpenSide -> Sign -> OrientedCurve
+pattern OrientedCurve {side, sign} <- (viewOC -> OrientedCurveView {sign, side})
+  where
+    OrientedCurve side sign = OrientedCurve' (fromIntegral $ (fromEnum sign `shiftL` 2) .|. fromEnum side)
+
+pattern PosCurve :: OrientedCurve
+pattern PosCurve <- OrientedCurve' ((0b100 .&.) -> 0b100)
+
+pattern NegCurve :: OrientedCurve
+pattern NegCurve <- OrientedCurve' ((0b100 .&.) -> 0b000)
+
+{-# COMPLETE OrientedCurve #-}
+
+{-# COMPLETE NegCurve, PosCurve #-}
+
+data OrientedCurveView = OrientedCurveView {sign :: Sign, side :: OpenSide}
   deriving (Show, Eq, Ord, Generic)
 
+viewOC :: OrientedCurve -> OrientedCurveView
+viewOC w = OrientedCurveView {sign = sign' w, side = side' w}
+
+sign' :: OrientedCurve -> Sign
+{-# INLINE sign' #-}
+sign' (OrientedCurve' w) = toEnum $ fromIntegral $ (w .&. 0b100) `shiftR` 2
+
+side' :: OrientedCurve -> OpenSide
+{-# INLINE side' #-}
+side' (OrientedCurve' w) = OpenSide $ w .&. 0b011
+
 instance Invert OrientedCurve where
-  invert = #sign %~ invert
+  invert = coerce $ xor @Word8 0b100
+  {-# INLINE invert #-}
+
+sideL :: Lens' OrientedCurve OpenSide
+sideL = lens side' \curve side ->
+  OrientedCurve' $ (coerce curve .&. 0b100) .|. fromIntegral (fromEnum side)
 
 instance Rotate OrientedCurve where
-  clockwise = #side %~ clockwise
-  counterClockwise = #side %~ counterClockwise
+  clockwise = sideL %~ clockwise
+  counterClockwise = sideL %~ counterClockwise
 
 data Quadrant = UL | DL | DR | UR
   deriving (Show, Eq, Ord, Generic)
@@ -230,6 +302,12 @@ instance Rotate Quadrant where
   clockwise UR = DR
   clockwise DR = DL
   clockwise DL = UL
+
+instance HasField "side" OrientedCurve OpenSide where
+  getField = side'
+
+instance HasField "sign" OrientedCurve Sign where
+  getField = sign'
 
 curveTrail :: OrientedCurve -> [Quadrant]
 {-# INLINE curveTrail #-}
