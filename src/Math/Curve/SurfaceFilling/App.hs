@@ -13,13 +13,13 @@ import Control.Applicative
 import Diagrams (mkSizeSpec2D)
 import Diagrams.Backend.Rasterific (renderRasterific)
 import GHC.Generics (Generic)
-import Math.Curve.SurfaceFilling.Hilbert (drawHilbertCurve)
+import Math.Curve.SurfaceFilling.Hilbert
 import Options.Applicative qualified as Opt
 import System.Directory
 import System.FilePath
 import Text.Printf
 
-data Curve = Hilbert
+data Curve = Hilbert | Moore
   deriving (Show, Eq, Ord, Generic)
 
 data Options = Options
@@ -43,7 +43,10 @@ optionsP =
     p = do
       curve <-
         Opt.hsubparser $
-          Opt.command "hilbert" (Opt.info (pure Hilbert) (Opt.progDesc "Hilbert curve"))
+          mconcat
+            [ Opt.command "hilbert" (Opt.info (pure Hilbert) (Opt.progDesc "Hilbert curve"))
+            , Opt.command "moore" (Opt.info (pure Moore) (Opt.progDesc "Moore's Hilbert curve"))
+            ]
       size <-
         Opt.option
           Opt.auto
@@ -85,8 +88,14 @@ defaultMainWith Options {..} = do
   createDirectoryIfMissing True outputDir
   let dest = outputDir </> printf "%s-%02d-%dx%d.png" (curveName curve) iteration size size
   renderRasterific dest (mkSizeSpec2D size' size') $
-    drawHilbertCurve iteration
+    drawSurfaceFillingCurve iteration $
+      getCurve curve
   putStrLn $ "Generated image: " <> dest
 
 curveName :: Curve -> String
 curveName Hilbert = "hilbert"
+curveName Moore = "moore"
+
+getCurve :: Curve -> SurfaceFillingCurve
+getCurve Hilbert = hilbertCurve
+getCurve Moore = mooreCurve

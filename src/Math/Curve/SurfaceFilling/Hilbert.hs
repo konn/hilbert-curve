@@ -17,10 +17,13 @@
 
 module Math.Curve.SurfaceFilling.Hilbert (
   hilbertCurve,
-  drawHilbertCurve,
-  hilbertCurvePath,
+  surfaceFillingCurvePath,
   hilbert0,
   hilbertStep,
+  mooreStep,
+  mooreCurve,
+  SurfaceFillingCurve,
+  drawSurfaceFillingCurve,
   OrientedCurve (OrientedCurve, sign, side, PosCurve, NegCurve),
   curveTrail,
   start,
@@ -54,6 +57,8 @@ import GHC.Records (HasField (..))
 import Generic.Data ()
 import Language.Haskell.TH.Syntax (Lift)
 
+type SurfaceFillingCurve = Cofree Quad OrientedCurve
+
 hilbert0 :: OrientedCurve
 hilbert0 = OrientedCurve {side = U, sign = P}
 
@@ -70,18 +75,35 @@ hilbertStep curve = case curve of
     R -> clockwise $ hilbertStep $ OrientedCurve U P
     D -> clockwise $ clockwise $ hilbertStep $ OrientedCurve U P
 
-hilbertCurve :: Cofree Quad OrientedCurve
+hilbertCurve :: SurfaceFillingCurve
 hilbertCurve = coiter hilbertStep hilbert0
 
-drawHilbertCurve ::
+mooreStep :: OrientedCurve -> Quad OrientedCurve
+mooreStep curve = case curve of
+  NegCurve -> invert $ hilbertStep $ invert curve
+  PosCurve -> case curve.side of
+    U -> tabulate \case
+      UL -> clockwise curve
+      UR -> counterClockwise curve
+      DL -> clockwise curve
+      DR -> counterClockwise curve
+    L -> counterClockwise $ hilbertStep $ OrientedCurve U P
+    R -> clockwise $ hilbertStep $ OrientedCurve U P
+    D -> clockwise $ clockwise $ hilbertStep $ OrientedCurve U P
+
+mooreCurve :: SurfaceFillingCurve
+mooreCurve = coiter mooreStep hilbert0
+
+drawSurfaceFillingCurve ::
   ( V b ~ V2
   , N b ~ Double
   , Renderable (Path V2 Double) b
   ) =>
   Word ->
+  SurfaceFillingCurve ->
   Diagram b
-drawHilbertCurve n =
-  hilbertCurvePath n & center & pad 1.125 & bg white
+drawSurfaceFillingCurve n curve =
+  surfaceFillingCurvePath n curve & center & pad 1.125 & bg white
 
 data Endpoints a = EndpointCoords
   { start :: !a
@@ -109,53 +131,54 @@ instance (HasOrigin a) => HasOrigin (Endpoints a) where
       , end = moveOriginTo newOrig eps.end
       }
 
-hilbertCurvePath ::
+surfaceFillingCurvePath ::
   forall b.
   ( V b ~ V2
   , N b ~ Double
   , Renderable (Path V2 Double) b
   ) =>
-  Word -> Diagram b
-hilbertCurvePath !n = fst $ loop 0 hilbertCurve
+  Word ->
+  SurfaceFillingCurve ->
+  Diagram b
+surfaceFillingCurvePath = fmap fst . loop
   where
     loop :: Word -> Cofree Quad OrientedCurve -> (Diagram b, Endpoints (Point V2 Double))
-    loop !i (curve :< curves)
-      | i == n =
-          let dia = strokeCurve curve
-              eps =
-                EndpointCoords
-                  (toRelativePoint $ start curve)
-                  (toRelativePoint $ end curve)
-           in (dia, eps)
-      | otherwise =
-          let ts = curveTrail curve
-              (dia, epss) =
-                unzipR $
-                  imap
-                    ( \qua m ->
-                        loop (i + 1) m
-                          & scale 0.5
-                          & moveToQuadrance qua
-                    )
-                    curves
-              ts' = map (index epss) ts
+    loop 0 (!curve :< _) =
+      let dia = strokeCurve curve
+          eps =
+            EndpointCoords
+              (toRelativePoint $ start curve)
+              (toRelativePoint $ end curve)
+       in (dia, eps)
+    loop !n (curve :< curves) =
+      let ts = curveTrail curve
+          (dia, epss) =
+            unzipR $
+              imap
+                ( \qua m ->
+                    loop (n - 1) m
+                      & scale 0.5
+                      & moveToQuadrance qua
+                )
+                curves
+          ts' = map (index epss) ts
 
-              diagram =
-                mconcat
-                  [ fold dia
-                  , foldMap
-                      ( \(src, tgt) ->
-                          src ~~ tgt & lc black
-                      )
-                      (zip ((.end) <$> ts') $ drop 1 $ (.start) <$> ts')
-                  ]
-              eps' =
-                join
-                  EndpointCoords
-                    { start = index epss (start curve)
-                    , end = index epss (end curve)
-                    }
-           in (diagram, eps')
+          diagram =
+            mconcat
+              [ fold dia
+              , foldMap
+                  ( \(src, tgt) ->
+                      src ~~ tgt & lc black
+                  )
+                  (zip ((.end) <$> ts') $ drop 1 $ (.start) <$> ts')
+              ]
+          eps' =
+            join
+              EndpointCoords
+                { start = index epss (start curve)
+                , end = index epss (end curve)
+                }
+       in (diagram, eps')
 
 moveToQuadrance :: (InSpace V2 Double t, HasOrigin t) => Quadrant -> t -> t
 moveToQuadrance = moveTo . toRelativePoint
